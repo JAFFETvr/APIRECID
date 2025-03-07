@@ -9,9 +9,11 @@ import (
 	"gym-system/src/inventory/Mensaje/application/useCases"
 	"gym-system/src/inventory/Mensaje/domain/entity"
 	"gym-system/src/inventory/Mensaje/domain/repository"
+	"gym-system/src/inventory/Mensaje/infraestructure/hub"
+	
 )
 
-// DTO que permite recibir tanto "message" como "contenido"
+// Utilizamos un DTO para adaptarnos a distintos formatos que pueda enviar el front o consumidor.
 type mensajeDTO struct {
 	Message   string `json:"message"`
 	Contenido string `json:"contenido"`
@@ -19,11 +21,13 @@ type mensajeDTO struct {
 
 type MensajeController struct {
 	useCase *useCases.ProcesarMensajeUseCase
+	wsHub   *hub.Hub
 }
 
-func NewMensajeController(rabbitRepo repository.RabbitMQRepository) *MensajeController {
+func NewMensajeController(rabbitRepo repository.RabbitMQRepository, wsHub *hub.Hub) *MensajeController {
 	return &MensajeController{
 		useCase: useCases.NewProcesarMensajeUseCase(rabbitRepo),
+		wsHub:   wsHub,
 	}
 }
 
@@ -42,34 +46,42 @@ func (c *MensajeController) RecibirMensaje(w http.ResponseWriter, r *http.Reques
 
 	fmt.Println("JSON recibido:", string(body))
 
-	// Deserializamos en un DTO que admita ambas claves
+	// Deserializamos en un DTO para admitir tanto "message" como "contenido"
 	var dto mensajeDTO
 	if err := json.Unmarshal(body, &dto); err != nil {
 		http.Error(w, "Error al decodificar el JSON", http.StatusBadRequest)
 		return
 	}
 
-	// Mapear el DTO a la entidad de dominio
-	// Si "contenido" está vacío, usamos "message"
+	// Mapear el DTO al objeto de dominio. Si "contenido" está vacío, usamos "message".
 	contenido := dto.Contenido
 	if contenido == "" {
 		contenido = dto.Message
 	}
-
-	// Asignar un ID por defecto o generar uno (aquí usamos "default-id")
 	mensaje := entity.Mensaje{
-		ID:        "default-id",
+		ID:        "default-id", // Se asigna un ID por defecto (puedes generar un UUID si prefieres)
 		Contenido: contenido,
 	}
 
-	fmt.Println("Mensaje después de Unmarshal y mapeo:", mensaje)
+	fmt.Println("Mensaje después de mapeo:", mensaje)
 
+	// Ejecutar el use case para enviar el mensaje a RabbitMQ.
 	if err := c.useCase.Execute(mensaje); err != nil {
 		http.Error(w, "Error al procesar el mensaje", http.StatusInternalServerError)
 		return
 	}
 
-	fmt.Println("Mensaje recibido y procesado correctamente")
+	// Convertir el mensaje a JSON para emitirlo vía WebSocket.
+	messageBytes, err := json.Marshal(mensaje)
+	if err != nil {
+		http.Error(w, "Error al serializar el mensaje", http.StatusInternalServerError)
+		return
+	}
+
+	// Emitir el mensaje a todos los clientes conectados.
+	c.wsHub.Broadcast(messageBytes)
+	fmt.Println("Mensaje procesado y emitido vía WebSocket")
+
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Mensaje recibido correctamente"))
+	w.Write([]byte("Mensaje recibido y emitido correctamente"))
 }

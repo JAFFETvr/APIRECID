@@ -9,28 +9,36 @@ import (
 	"gym-system/src/inventory/Mensaje/infraestructure/database"
 	"gym-system/src/inventory/Mensaje/infraestructure/controllers"
 	"gym-system/src/inventory/Mensaje/infraestructure/routes"
-	"gym-system/src/inventory/Mensaje/domain/repository"
+	ws "gym-system/src/inventory/Mensaje/infraestructure/hub"
+	
 )
 
 func main() {
 	fmt.Println("Iniciando API...")
 
-	// Crear el repositorio de RabbitMQ (implementación de la interfaz)
-	rmq, err := database.NewRabbitMQ() // Usamos la implementación de RabbitMQ
+	// Iniciar el Hub de WebSocket
+	hub := ws.NewHub()
+	go hub.Run()
+
+	// Conectar a RabbitMQ (implementación de RabbitMQRepository)
+	rmq, err := database.NewRabbitMQ()
 	if err != nil {
 		log.Fatal("No se pudo conectar a RabbitMQ:", err)
 	}
 	defer rmq.Close()
 
-	// Crear el controlador de mensajes, inyectando el repositorio
-	var rabbitRepo repository.RabbitMQRepository = rmq
-	mensajeController := controllers.NewMensajeController(rabbitRepo)
+	// Inyectar la implementación de RabbitMQ y el hub en el controlador.
+	mensajeController := controllers.NewMensajeController(rmq, hub)
 
-	// Configurar rutas
+	// Configurar rutas usando mux.
 	router := mux.NewRouter()
 	routes.SetupRoutes(router, mensajeController)
 
-	// Iniciar el servidor
+	// Ruta para las conexiones WebSocket.
+	router.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		ws.ServeWs(hub, w, r)
+	})
+
 	port := ":8081"
 	fmt.Println("API escuchando en", port)
 	log.Fatal(http.ListenAndServe(port, router))
