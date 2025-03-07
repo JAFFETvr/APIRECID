@@ -1,11 +1,10 @@
 package routes
 
 import (
-   "github.com/gorilla/mux"
-"gym-system/src/inventory/Mensaje/infraestructure/controllers"
+	"github.com/gorilla/mux"
+	"gym-system/src/inventory/Mensaje/infraestructure/controllers"
 )
 
-// SetupRoutes configura las rutas de la API.
-func SetupRoutes(router *mux.Router) {
-	router.HandleFunc("/mensaje", controllers.RecibirMensaje).Methods("POST")
+func SetupRoutes(router *mux.Router, mensajeController *controllers.MensajeController) {
+	router.HandleFunc("/mensaje", mensajeController.RecibirMensaje).Methods("POST")
 }

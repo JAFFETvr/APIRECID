@@ -1,4 +1,4 @@
-package equipment
+package database
 
 import (
 	"fmt"
